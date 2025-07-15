@@ -1,0 +1,480 @@
+generate<-function(n){
+
+  #generate the data
+  X<-runif(n,0.5,1)
+  Z<-rep(0,n)
+  
+  beta<-c(0.25,0.2)
+  a<-c(0.1,0.16,0.1,0.15)
+  b<-c(0.35,0.5,0.4,0.5)
+  
+  #T part
+  T<-rep(0,n)
+  for(i in 1:n)
+  {
+    num<-runif(1,0,1)
+    F1upper<-1-exp(-a[1]/b[1]*exp(beta[1]*Z[i])-X[i]*exp(beta[1]*Z[i])*a[2]/b[2])
+    F2upper<-1-exp(-a[3]/b[3]*exp(beta[2]*Z[i])-X[i]*exp(beta[2]*Z[i])*a[4]/b[4])
+    wholeFupper<-F1upper+F2upper
+    # print(wholeFupper)
+    F1<-function(t){1-exp(-a[1]/b[1]*(1-exp(-b[1]*t))*exp(beta[1]*Z[i])-X[i]*exp(beta[1]*Z[i])*a[2]/b[2]*(1-exp(-b[2]*t)))}
+    F2<-function(t){1-exp(-a[3]/b[3]*(1-exp(-b[3]*t))*exp(beta[2]*Z[i])-X[i]*exp(beta[2]*Z[i])*a[4]/b[4]*(1-exp(-b[4]*t)))}
+    wholeF<-function(t){F1(t)+F2(t)}
+    if(wholeFupper>num){
+      solvefunction<-function(t){wholeF(t)-num}
+      T[i]<-uniroot(solvefunction, c(0,1000))$root}
+    else if(wholeFupper<=num){
+      T[i]<-Inf
+    }
+  }
+  
+  J<-rep(NA,n)
+  for(i in 1:n){
+    if(T[i]!=Inf){
+      lambda1<-function(t){(a[1]*exp(-b[1]*t)+a[2]*exp(-b[2]*t)*X[i])*exp(beta[1]*Z[i])}
+      lambda2<-function(t){(a[3]*exp(-b[3]*t)+a[4]*exp(-b[4]*t)*X[i])*exp(beta[2]*Z[i])}
+      F1<-function(t){1-exp(-a[1]/b[1]*(1-exp(-b[1]*t))*exp(beta[1]*Z[i]))*exp(-X[i]*exp(beta[1]*Z[i])*a[2]/b[2]*(1-exp(-b[2]*t)))}
+      F2<-function(t){1-exp(-a[3]/b[3]*(1-exp(-b[3]*t))*exp(beta[2]*Z[i]))*exp(-X[i]*exp(beta[2]*Z[i])*a[4]/b[4]*(1-exp(-b[4]*t)))}
+      alpha1<-(1-F1(T[i]))*lambda1(T[i])
+      alpha2<-(1-F2(T[i]))*lambda2(T[i])
+      prob<-alpha1/(alpha1+alpha2)
+      probability<-rbinom(1,1,prob=prob)
+      if(probability==1){
+        J[i]<-1
+      }else{ J[i]<-2 }}else if(T[i]==Inf){
+        J[i]<-0
+      }}
+  J<-matrix(J, nrow = n, ncol = 1, byrow = FALSE) #n failure type
+
+  Tmethod2<-T
+  v<-numeric(length=n)
+  u<-numeric(length=n)
+  i<-1
+  while(i<=n){
+    first <-rexp(1, rate=4)
+    if(first<8){
+      observation_times <- NULL
+      while (sum(observation_times)<=8) {
+        V <- rexp(1, rate=4) 
+        observation_times <- c(observation_times, V)
+      }
+      actual_observation_3 <- cumsum(c(first, observation_times))
+      actual_observation_times<-actual_observation_3[actual_observation_3<=8]
+      if(length(actual_observation_times)>=2){
+        if(Tmethod2[i]<=actual_observation_times[1]){
+          v[i]<-0
+          u[i]<-actual_observation_times[1] 
+        }else if(Tmethod2[i]>=actual_observation_times[length(actual_observation_times)]){
+          v[i]<-actual_observation_times[length(actual_observation_times)]
+          u[i]<-Inf
+        }else{
+          place<-findInterval(Tmethod2[i],actual_observation_times)
+          v[i]<-actual_observation_times[place]
+          u[i]<-actual_observation_times[place+1]
+        }
+        i<-i+1}else{i<-i}}
+    else if(first>=4){
+      i<-i
+    }
+  }
+  
+  
+  observe<-cbind(v,u)
+  simulation200<-data.frame(1:n,observe,T,J,X,Z)
+  
+  
+  for(j in 1:n){
+    if(simulation200$u[j]=="Inf"){
+      simulation200$J[j]<-0
+    }
+  }
+  
+  simulation<-simulation200
+  simulation
+}
+simulation200<-generate(200)
+table(simulation200$J)
+#analysis
+analysis<-function(simulate){
+  simulation200<-simulate
+
+  tao_1<-min(simulation200$v)
+  simulation200u<-simulation200$u[is.finite(simulation200$u)]
+  tao_2<-max(simulation200u)
+  t<-c(simulation200$v,simulation200u)
+  
+  splinenum<-9
+  tao<-c(tao_1,tao_2)
+  
+  knots<-unique(quantile(t[t < max(t) & t > min(t)], seq(0, 1, by = 1/(splinenum+1)))[2:(splinenum+1)])
+  baseBfunction <- splines::bs(t,knots=knots, degree = 3, intercept = TRUE, Boundary.knots = c(min(t), max(t)))     
+
+  BfuncV<-predict(baseBfunction,simulation200$v)
+  #Bv<-as.data.frame(fit$Bv)
+  delta<-simulation200$J
+  TU<-simulation200$u
+  TU[delta==0] <- max(t)
+  BfuncU<-predict(baseBfunction,TU)
+  
+  wbeta1<-rep(NA,1)
+  wbeta2<-rep(NA,1)
+  wspline1<-rep(NA,splinenum + 4)
+  wspline2<-rep(NA,splinenum + 4)
+  wsplineX1<-rep(NA,splinenum + 4)
+  wsplineX2<-rep(NA,splinenum + 4)
+  wparameter<-c(wbeta1,wbeta2,wspline1,wsplineX1,wspline2,wsplineX2)
+  wparameter<-as.numeric(wparameter)
+
+  Tv<-simulation200$v
+  
+  d1 <- (delta == 1 & Tv > 0)
+  d2 <- (delta == 2 & Tv > 0)
+  d1_1 <- (delta == 1 & Tv == 0)
+  d2_1 <- (delta == 2 & Tv == 0)
+  #left truncation
+  d <- (d1 + d1_1 + d2 + d2_1)
+  
+  
+  originbeta1<-0
+  originbeta2<-0
+  origin<-seq(from=0.001,to=0.875,by =((0.875-0.001)/(dim(baseBfunction)[2]-1)))
+  origin<-log(origin)-1.15
+  origindata<-c(originbeta1,originbeta2,origin,origin,origin,origin)
+
+  X<-simulation200$X
+  Z<-simulation200$Z
+ 
+  loglikelihood<-function(para){
+    x<-para
+    wbeta1<-x[1]
+    wbeta2<-x[2]
+    wspline1<-x[3:(splinenum+6)]
+    wsplineX1<-x[(splinenum+7):(2*splinenum+10)]
+    wspline2<-x[(2*splinenum+11):(3*splinenum+14)]
+    wsplineX2<-x[(3*splinenum+15):length(x)]
+    
+    BS1u <- BfuncU %*% wspline1
+    BS1v <- BfuncV %*% wspline1
+    BS2u <- BfuncU %*% wspline2
+    BS2v <- BfuncV %*% wspline2
+    
+    BS1uX <- BfuncU %*% wsplineX1
+    BS1vX <- BfuncV %*% wsplineX1
+    BS2uX <- BfuncU %*% wsplineX2
+    BS2vX <- BfuncV %*% wsplineX2
+    
+    bz_1 <- Z*wbeta1
+    bz_2 <- Z*wbeta2
+    
+    ci1v <- 1-exp(-exp(BS1v+bz_1)-X*exp(BS1vX+bz_1))
+    ci1u <- 1-exp(-exp(BS1u+bz_1)-X*exp(BS1uX+bz_1))
+    ci2v <- 1-exp(-exp(BS2v+bz_2)-X*exp(BS2vX+bz_2))
+    ci2u <- 1-exp(-exp(BS2u+bz_2)-X*exp(BS2uX+bz_2))
+    
+    ci1u[ci1u == ci1v & delta == 0] <- ci1u[ci1u == ci1v & delta == 0] + 0.001
+    ci2u[ci2u == ci2v & delta == 0] <- ci2u[ci2u == ci2v & delta == 0] + 0.001
+    
+    ill <- d1_1 * log(ci1u) + d2_1 * log(ci2u) +
+      d1 * log(ci1u - ci1v) + d2 * log(ci2u - ci2v) +
+      (1 - d) * log(1 - (ci1v + ci2v))
+    
+    nll <- -sum(ill)
+    nll
+  }
+  
+  Gradfunction<-function(para){
+    x<-para
+    wbeta1<-x[1]
+    wbeta2<-x[2]
+    wspline1<-x[3:(splinenum+6)]
+    wsplineX1<-x[(splinenum+7):(2*splinenum+10)]
+    wspline2<-x[(2*splinenum+11):(3*splinenum+14)]
+    wsplineX2<-x[(3*splinenum+15):length(x)]
+    
+    BS1u <- as.vector(BfuncU %*% wspline1)
+    BS1v <- as.vector(BfuncV %*% wspline1)
+    BS1uX <- as.vector(BfuncU %*% wsplineX1)
+    BS1vX <- as.vector(BfuncV %*% wsplineX1)
+    
+    BS2u <- as.vector(BfuncU %*% wspline2)
+    BS2v <- as.vector(BfuncV %*% wspline2)
+    BS2uX <- as.vector(BfuncU %*% wsplineX2)
+    BS2vX <- as.vector(BfuncV %*% wsplineX2)
+    
+    bz_1 <- as.vector(Z*wbeta1)
+    bz_2 <- as.vector(Z*wbeta2)
+    
+    ci1v <- 1-exp(-exp(BS1v+bz_1)-X*exp(BS1vX+bz_1))
+    ci1u <- 1-exp(-exp(BS1u+bz_1)-X*exp(BS1uX+bz_1))
+    ci2v <- 1-exp(-exp(BS2v+bz_2)-X*exp(BS2vX+bz_2))
+    ci2u <- 1-exp(-exp(BS2u+bz_2)-X*exp(BS2uX+bz_2))
+    
+    ci1u[ci1u == ci1v & delta == 0] <- ci1u[ci1u == ci1v & delta == 0] + 0.001
+    ci2u[ci2u == ci2v & delta == 0] <- ci2u[ci2u == ci2v & delta == 0] + 0.001
+    
+    zero <- matrix(0,nrow=length(simulation200$X1.n),ncol=1)
+    dB1u1 <- BfuncU*(-exp(BS1u+bz_1))
+    dB1u2 <- BfuncU*(-X*exp(BS1uX+bz_1))
+    dB1u <- cbind(Z*(-exp(BS1u+bz_1)-X*exp(BS1uX+bz_1)),zero,dB1u1,dB1u2,matrix(0,nrow=length(simulation200$X1.n),ncol=splinenum+4),matrix(0,nrow=length(simulation200$X1.n),ncol=splinenum+4))
+    
+    dB2u1 <- BfuncU*(-exp(BS2u+bz_2))
+    dB2u2 <- BfuncU*(-X*exp(BS2uX+bz_2))
+    dB2u <- cbind(zero,Z*(-exp(BS2u+bz_2)-X*exp(BS2uX+bz_2)),matrix(0,nrow=length(simulation200$X1.n),ncol=splinenum+4),matrix(0,nrow=length(simulation200$X1.n),ncol=splinenum+4),dB2u1,dB2u2)
+    
+    dB1v1 <- BfuncV*(-exp(BS1v+bz_1))
+    dB1v2 <- BfuncV*(-X*exp(BS1vX+bz_1))
+    dB1v <- cbind(Z*(-exp(BS1v+bz_1)-X*exp(BS1vX+bz_1)),zero,dB1v1,dB1v2,matrix(0,nrow=length(simulation200$X1.n),ncol=splinenum+4),matrix(0,nrow=length(simulation200$X1.n),ncol=splinenum+4))
+    
+    dB2v1 <- BfuncV*(-exp(BS2v+bz_2))
+    dB2v2 <- BfuncV*(-X*exp(BS2vX+bz_2))
+    dB2v <- cbind(zero,Z*(-exp(BS2v+bz_2)-X*exp(BS2vX+bz_2)),matrix(0,nrow=length(simulation200$X1.n),ncol=splinenum+4),matrix(0,nrow=length(simulation200$X1.n),ncol=splinenum+4),dB2v1,dB2v2)
+    
+    dci1v <- -exp(-exp(BS1v+bz_1)-X*exp(BS1vX+bz_1))
+    dci1u <- -exp(-exp(BS1u+bz_1)-X*exp(BS1uX+bz_1))
+    dci2v <- -exp(-exp(BS2v+bz_2)-X*exp(BS2vX+bz_2))
+    dci2u <- -exp(-exp(BS2u+bz_2)-X*exp(BS2uX+bz_2))
+    
+    gradlikeli <- (d1_1 / ci1u) * (dci1u*dB1u) +
+      (d2_1 / ci2u) * (dci2u * dB2u) +
+      (d1 / (ci1u - ci1v)) * (dci1u* dB1u - dci1v* dB1v) +
+      (d2 / (ci2u - ci2v)) * (dci2u* dB2u - dci2v* dB2v) +
+      ((1 - d) / (1 - ci1v - ci2v)) * (-dci1v* dB1v - dci2v * dB2v)
+    
+    sumgradlikeli<- -colSums(gradlikeli) 
+    sumgradlikeli
+  }
+  
+  
+  comb<-matrix(NA,nrow=4,ncol=2)
+  comb[1,]<-c(min(X),min(Z))
+  comb[2,]<-c(max(X),min(Z))
+  comb[3,]<-c(min(X),max(Z))
+  comb[4,]<-c(max(X),max(Z))
+  
+  hin<-function(para){
+    #para<-origindata
+    x<-para
+   
+    wbeta1<-x[1]
+    wbeta2<-x[2]
+    wspline1<-x[3:(splinenum+6)]
+    wsplineX1<-x[(splinenum+7):(2*splinenum+10)]
+    wspline2<-x[(2*splinenum+11):(3*splinenum+14)]
+    wsplineX2<-x[(3*splinenum+15):length(x)]
+    
+    wminus1<-diff(wspline1)
+    wminusX1<-diff(wsplineX1)
+    wminus2<-diff(wspline2)
+    wminusX2<-diff(wsplineX2)
+    
+    #CIF
+    cif1<-function(j,wspline1,wsplineX1,wbeta1){1-exp(-exp(wspline1[length(wspline1)]+wbeta1*comb[j,2])-comb[j,1]*exp(wsplineX1[length(wsplineX1)]+wbeta1*comb[j,2]))}
+    cif2<-function(j,wspline2,wsplineX2,wbeta2){1-exp(-exp(wspline2[length(wspline2)]+wbeta2*comb[j,2])-comb[j,1]*exp(wsplineX2[length(wsplineX2)]+wbeta2*comb[j,2]))}
+    addcons<-rep(NA,length(comb[,1]))
+    for(j in 1:length(comb[,1])){
+      addcons[j]<-1-(cif1(j,wspline1,wsplineX1,wbeta1)+cif2(j,wspline2,wsplineX2,wbeta2))
+    }
+    ui<-c(wminus1,wminusX1,wminus2,wminusX2,addcons)
+    ui-0.00000001
+  }
+  #loglikelihood(origindata)
+  #hin(origindata)
+  
+  
+  hin_grad<-function(para){
+    #para<-origindata
+    x<-para
+  
+    wbeta1<-x[1]
+    wbeta2<-x[2]
+    wspline1<-x[3:(splinenum+6)]
+    wsplineX1<-x[(splinenum+7):(2*splinenum+10)]
+    wspline2<-x[(2*splinenum+11):(3*splinenum+14)]
+    wsplineX2<-x[(3*splinenum+15):length(x)]
+    
+    wminus1<-diff(wspline1)
+    wminusX1<-diff(wsplineX1)
+    wminus2<-diff(wspline2)
+    wminusX2<-diff(wsplineX2)
+    
+    zeros1<-matrix(0,nrow=length(wminus1)*4,ncol=2)
+    zeros2<-matrix(0,nrow=length(wminus1),ncol=length(wspline1))
+    
+   
+    s<-length(wspline1)
+   
+    u<-matrix(0, nrow=s-1, ncol=s)
+   
+    for (i in 1:(s-1)){
+      u[i,i]<- -1
+      u[i,i+1]<- 1
+    }
+    transi1<-cbind(u,zeros2,zeros2,zeros2)
+    transi2<-cbind(zeros2,u,zeros2,zeros2)
+    transi3<-cbind(zeros2,zeros2,u,zeros2)
+    transi4<-cbind(zeros2,zeros2,zeros2,u)
+    ui<-rbind(transi1,transi2,transi3,transi4)
+    ui<-cbind(zeros1,ui)
+    
+    dcifpart1<-function(i,wbeta1,wspline1,wsplineX1){-exp(-exp(wspline1[length(wspline1)]+wbeta1*comb[i,2])-comb[i,1]*exp(wsplineX1[length(wsplineX1)]+wbeta1*comb[i,2]))}
+    dcifpart2<-function(i,wbeta2,wspline2,wsplineX2){-exp(-exp(wspline2[length(wspline2)]+wbeta2*comb[i,2])-comb[i,1]*exp(wsplineX2[length(wsplineX2)]+wbeta2*comb[i,2]))}
+    dcifpart11<-function(i,wbeta1,wspline1,wsplineX1){-exp(wspline1[length(wspline1)]+wbeta1*comb[i,2])-comb[i,1]*exp(wsplineX1[length(wsplineX1)]+wbeta1*comb[i,2])}
+    dcifpart22<-function(i,wbeta2,wspline2,wsplineX2){-exp(wspline2[length(wspline2)]+wbeta2*comb[i,2])-comb[i,1]*exp(wsplineX2[length(wsplineX2)]+wbeta2*comb[i,2])}
+    
+    
+    addcons<-rep(0,length(wparameter))
+    #line<-rep(0,length(wparameter)-4)
+    # line[splinenum+8]<-1
+    # line[length(wparameter)]<-1
+    for(k in 1:length(comb[,1])){
+      
+      # lines<-c(comb[k,],comb[k,],line)
+      # minmax<- -lines*(dcif1(k,wtheta1,wbeta1)+dcif2(k,wtheta2,wbeta2))
+      addcons[1]<- dcifpart1(k,wbeta1,wspline1,wsplineX1)*dcifpart11(k,wbeta1,wspline1,wsplineX1)*comb[k,2] 
+      addcons[2]<- dcifpart2(k,wbeta2,wspline2,wsplineX2)*dcifpart22(k,wbeta2,wspline2,wsplineX2)*comb[k,2] 
+      addcons[splinenum+6]<- dcifpart1(k,wbeta1,wspline1,wsplineX1)*(-exp(wspline1[length(wspline1)]+wbeta1*comb[k,2]))
+      addcons[2*splinenum+10]<- dcifpart1(k,wbeta1,wspline1,wsplineX1)*comb[k,1]*(-exp(wsplineX1[length(wsplineX1)]+wbeta1*comb[k,2]))
+      addcons[3*splinenum+14]<- dcifpart2(k,wbeta2,wspline2,wsplineX2)*(-exp(wspline2[length(wspline2)]+wbeta2*comb[k,2]))
+      addcons[length(wparameter)]<- dcifpart2(k,wbeta2,wspline2,wsplineX2)*comb[k,1]*(-exp(wsplineX2[length(wsplineX2)]+wbeta2*comb[k,2]))
+      ui<-rbind(ui,addcons)
+      #  minmax[splinenum+8]<- -(dcif1(k,wtheta1,wbeta1)+dcif2(k,wtheta2,wbeta2))
+      #  minmax[length(wparameter)]<- -(dcif1(k,wtheta1,wbeta1)+dcif2(k,wtheta2,wbeta2))
+      #  ui<-rbind(ui,minmax)
+    }
+    unname(ui)
+  }
+  
+  
+  
+  
+  heq<-function(para){
+    #para<-originpara
+    x<-para
+   
+    wbeta1<-x[1]
+    wbeta2<-x[2]
+    wspline1<-x[3:(splinenum+6)]
+    wsplineX1<-x[(splinenum+7):(2*splinenum+10)]
+    wspline2<-x[(2*splinenum+11):(3*splinenum+14)]
+    wsplineX2<-x[(3*splinenum+15):length(x)]
+   
+    wminus1<-rep(0,splinenum+3)
+    wminusX1<-rep(0,splinenum+3)
+    wminus2<-rep(0,splinenum+3)
+    wminusX2<-rep(0,splinenum+3)
+   
+  
+    cif1<-function(j,wspline1,wsplineX1,wbeta1){1-exp(-exp(wspline1[1]+wbeta1*comb[j,2])-comb[j,1]*exp(wsplineX1[1]+wbeta1*comb[j,2]))}
+    cif2<-function(j,wspline2,wsplineX2,wbeta2){1-exp(-exp(wspline2[1]+wbeta2*comb[j,2])-comb[j,1]*exp(wsplineX2[1]+wbeta2*comb[j,2]))}
+    addcons<-rep(NA,length(comb[,1]))
+    for(j in 1:length(comb[,1])){
+      addcons[j]<-cif1(j,wspline1,wsplineX1,wbeta1)+cif2(j,wspline2,wsplineX2,wbeta2)
+    }
+    ui<-c(wminus1,wminusX1,wminus2,wminusX2,addcons)
+    ui    
+  
+  }
+  
+  heq_grad<-function(para){
+    x<-para
+  
+    wbeta1<-x[1]
+    wbeta2<-x[2]
+    wspline1<-x[3:(splinenum+6)]
+    wsplineX1<-x[(splinenum+7):(2*splinenum+10)]
+    wspline2<-x[(2*splinenum+11):(3*splinenum+14)]
+    wsplineX2<-x[(3*splinenum+15):length(x)]
+    
+    ui<-matrix(0,nrow=4*(splinenum+3),ncol=length(x))
+    dcifpart1<-function(i,wbeta1,wspline1,wsplineX1){-exp(-exp(wspline1[1]+wbeta1*comb[i,2])-comb[i,1]*exp(wsplineX1[1]+wbeta1*comb[i,2]))}
+    dcifpart2<-function(i,wbeta2,wspline2,wsplineX2){-exp(-exp(wspline2[1]+wbeta2*comb[i,2])-comb[i,1]*exp(wsplineX2[1]+wbeta2*comb[i,2]))}
+    dcifpart11<-function(i,wbeta1,wspline1,wsplineX1){-exp(wspline1[1]+wbeta1*comb[i,2])-comb[i,1]*exp(wsplineX1[1]+wbeta1*comb[i,2])}
+    dcifpart22<-function(i,wbeta2,wspline2,wsplineX2){-exp(wspline2[1]+wbeta2*comb[i,2])-comb[i,1]*exp(wsplineX2[1]+wbeta2*comb[i,2])}
+    
+   
+    addcons<-rep(0,length(wparameter))
+    for(k in 1:length(comb[,1])){
+      #   lines<-c(comb[k,],comb[k,],line)
+      #   minmax<-lines*(dcif1(k,wtheta1,wbeta1)+dcif2(k,wtheta2,wbeta2))
+      addcons[1]<- -dcifpart1(k,wbeta1,wspline1,wsplineX1)*dcifpart11(k,wbeta1,wspline1,wsplineX1)*comb[k,2] 
+      addcons[2]<- -dcifpart2(k,wbeta2,wspline2,wsplineX2)*dcifpart22(k,wbeta2,wspline2,wsplineX2)*comb[k,2] 
+      addcons[3]<- -dcifpart1(k,wbeta1,wspline1,wsplineX1)*(-exp(wspline1[1]+wbeta1*comb[k,2]))
+      addcons[splinenum+7]<- -dcifpart1(k,wbeta1,wspline1,wsplineX1)*comb[k,1]*(-exp(wsplineX1[1]+wbeta1*comb[k,2]))
+      addcons[2*splinenum+11]<- -dcifpart2(k,wbeta2,wspline2,wsplineX2)*(-exp(wspline2[1]+wbeta2*comb[k,2]))
+      addcons[3*splinenum+15]<- -dcifpart2(k,wbeta2,wspline2,wsplineX2)*comb[k,1]*(-exp(wsplineX2[1]+wbeta2*comb[k,2]))
+      ui<-rbind(ui,addcons)
+     
+    }
+    unname(ui)
+  }
+  
+  loglikelihood(origindata)
+  others <- try(alabama::constrOptim.nl(par = origindata,
+                                        fn = loglikelihood,
+                                        gr = Gradfunction,
+                                        hin = hin,
+                                        hin.jac = hin_grad,
+                                        heq = heq,
+                                        heq.jac = heq_grad,
+                                        control.optim = list(maxit = 2000),
+                                        control.outer = list(trace = FALSE)), silent = TRUE)
+  
+  coef<-others$par[1:2]
+  Bfuncpre<-predict(baseBfunction,1:250/50)
+  estivalue1<-Bfuncpre %*% others$par[3:(splinenum+6)]
+  estivalueX1<-Bfuncpre %*% others$par[(splinenum+7):(2*splinenum+10)]
+  estivalue2<-Bfuncpre %*% others$par[(2*splinenum+11):(3*splinenum+14)]
+  estivalueX2<-Bfuncpre %*% others$par[(3*splinenum+15):length(others$par)]
+  every<-c(coef,exp(estivalue1),exp(estivalueX1),exp(estivalue2),exp(estivalueX2))
+  return(every)
+}
+analysis(simulation200)
+
+finalfunc<-function(n,simulate,num){
+  simulation200<-simulate
+  #measure origin sumulation 
+  #bias mean the estimated value minus the true value
+  estivalue<-analysis(simulation200)
+  bias<-estivalue[1:2]-truevalue
+  estipoint<-estivalue[3:(length(estivalue)-2)]
+  #bootstrap num
+  bootmatrix<-NULL
+  for(i in 1:num){
+    bootsimulation <- simulation200[sample(nrow(simulation200),n,replace = TRUE),]
+    bootmatrix<-rbind(bootmatrix,analysis(bootsimulation)[1:2])
+  }
+  boot<-c(sd(bootmatrix[,1]),sd(bootmatrix[,2]))
+  
+  count<-(estivalue[1:2]+1.96*boot>=truevalue)&(estivalue[1:2]-1.96*boot<=truevalue)
+  countnum<-as.numeric(count)
+  final<-c(bias,boot,countnum,estipoint)
+  return(final)
+}
+
+n<-200
+num<-20
+truevalue<-c(0.25,0.2)
+simulation200<-generate(n)
+finalfunc(n,simulation200,num)
+
+result<-NULL
+#number of Monto Carlo
+decide<-1000
+s<-1
+#n-number of subjects _ num-bootstrap num
+n<-200
+num<-20
+truevalue<-c(0.25,0.2)
+
+start=date()
+
+while(s<=decide){
+  print(s)
+  simulation<-generate(n)
+  every<-finalfunc(n,simulation,num)
+  result<-rbind(result,every)
+  s<-s+1
+  
+}
+
+colMeans(result)
