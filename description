@@ -1,4 +1,4 @@
-This paper considers regression analysis of interval-censored competing risks data, which arise in many areas.	
+While our paper considers regression analysis of interval-censored competing risks data, which arise in many areas, this is the corresponding code.	
 
 For the problem, we consider an additive-multiplicative Cox-Aalen model for the subdistribution of a competing risk, and for inference, we propose a sieve maximum likelihood estimation procedure.  
 In the method, B splines are used to approximate unknown functions, or a finite-dimensional parameter space is employed to approximate the infinite-dimensional parameter space. 
