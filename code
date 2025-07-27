@@ -1,9 +1,9 @@
 generate<-function(n){
-
-  #generate the data
+  #generate the data, use uniform distribution for example
   X<-runif(n,0.5,1)
-  Z<-rep(0,n)
-  
+  Z<-runif(n,0.5,1)
+
+  #settings
   beta<-c(0.25,0.2)
   a<-c(0.1,0.16,0.1,0.15)
   b<-c(0.35,0.5,0.4,0.5)
@@ -76,12 +76,10 @@ generate<-function(n){
     else if(first>=4){
       i<-i
     }
-  }
-  
+  } 
   
   observe<-cbind(v,u)
   simulation200<-data.frame(1:n,observe,T,J,X,Z)
-  
   
   for(j in 1:n){
     if(simulation200$u[j]=="Inf"){
@@ -466,15 +464,14 @@ n<-200
 num<-20
 truevalue<-c(0.25,0.2)
 
-start=date()
-
+#without bootstrap and cannot change dimensions randomly
 while(s<=decide){
   print(s)
   simulation<-generate(n)
   every<-finalfunc(n,simulation,num)
   result<-rbind(result,every)
   s<-s+1
-  
+
 }
 
 colMeans(result)
